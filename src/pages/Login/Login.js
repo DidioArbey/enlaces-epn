@@ -4,9 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import './Login.scss';
 
-// 🎨 Iconos
+// Iconos
 import {
-    FaUser,
     FaLock,
     FaEye,
     FaEyeSlash,
@@ -15,28 +14,24 @@ import {
 } from 'react-icons/fa';
 
 const Login = () => {
-    const [isLogin, setIsLogin] = useState(true);
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
         email: '',
-        password: '',
-        confirmPassword: '',
-        displayName: '',
-        department: ''
+        password: ''
     });
 
-    const { login, register, isAuthenticated } = useAuth();
+    const { login, isAuthenticated } = useAuth();
     const navigate = useNavigate();
 
-    // 🔄 Redirigir si ya está autenticado
+    // Redirigir si ya está autenticado
     useEffect(() => {
         if (isAuthenticated) {
             navigate('/dashboard');
         }
     }, [isAuthenticated, navigate]);
 
-    // 📝 Manejar cambios en el formulario
+    // Manejar cambios en el formulario
     const handleInputChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({
@@ -45,7 +40,7 @@ const Login = () => {
         }));
     };
 
-    // 🔑 Manejar envío de login
+    // Manejar envío de login
     const handleLoginSubmit = async (e) => {
         e.preventDefault();
 
@@ -65,111 +60,30 @@ const Login = () => {
         }
     };
 
-    // 📝 Manejar envío de registro
-    const handleRegisterSubmit = async (e) => {
-        e.preventDefault();
-
-        if (!formData.email || !formData.password || !formData.displayName) {
-            alert('Por favor completa todos los campos obligatorios');
-            return;
-        }
-
-        if (formData.password !== formData.confirmPassword) {
-            alert('Las contraseñas no coinciden');
-            return;
-        }
-
-        if (formData.password.length < 6) {
-            alert('La contraseña debe tener al menos 6 caracteres');
-            return;
-        }
-
-        setLoading(true);
-        try {
-            await register(formData.email, formData.password, {
-                displayName: formData.displayName,
-                department: formData.department,
-                role: 'operator'
-            });
-            navigate('/dashboard');
-        } catch (error) {
-            // El error ya se maneja en el hook
-        } finally {
-            setLoading(false);
-        }
+    // Recuperar contraseña
+    const handleForgotPassword = () => {
+        alert('Contacta al administrador del sistema para recuperar tu contraseña');
     };
 
     return (
         <div className="login-container">
             <div className="login-card">
-                {/* 🏢 Header */}
+                {/* Header */}
                 <div className="login-header">
                     <div className="logo">
                         <FaBuilding size={48} />
                     </div>
                     <h1>Enlaces EPN</h1>
                     <p>Empresas Públicas de Neiva</p>
+                    <p className="subtitle">Sistema de Gestión de Llamadas</p>
                 </div>
 
-                {/* 📋 Formulario */}
+                {/* Formulario */}
                 <div className="login-form-container">
-                    <div className="form-tabs">
-                        <button
-                            className={`tab ${isLogin ? 'active' : ''}`}
-                            onClick={() => setIsLogin(true)}
-                            type="button"
-                        >
-                            Iniciar Sesión
-                        </button>
-                        <button
-                            className={`tab ${!isLogin ? 'active' : ''}`}
-                            onClick={() => setIsLogin(false)}
-                            type="button"
-                        >
-                            Registrarse
-                        </button>
-                    </div>
+                    <h2>Iniciar Sesión</h2>
 
-                    <form onSubmit={isLogin ? handleLoginSubmit : handleRegisterSubmit}>
-                        {/* 👤 Nombre (solo en registro) */}
-                        {!isLogin && (
-                            <div className="input-group">
-                                <div className="input-icon">
-                                    <FaUser />
-                                </div>
-                                <input
-                                    type="text"
-                                    name="displayName"
-                                    placeholder="Nombre completo"
-                                    value={formData.displayName}
-                                    onChange={handleInputChange}
-                                    required={!isLogin}
-                                />
-                            </div>
-                        )}
-
-                        {/* 🏢 Departamento (solo en registro) */}
-                        {!isLogin && (
-                            <div className="input-group">
-                                <div className="input-icon">
-                                    <FaBuilding />
-                                </div>
-                                <select
-                                    name="department"
-                                    value={formData.department}
-                                    onChange={handleInputChange}
-                                >
-                                    <option value="">Seleccionar departamento</option>
-                                    <option value="atencion-cliente">Atención al Cliente</option>
-                                    <option value="acueducto">Acueducto</option>
-                                    <option value="energia">Energía</option>
-                                    <option value="administracion">Administración</option>
-                                    <option value="tecnico">Técnico</option>
-                                </select>
-                            </div>
-                        )}
-
-                        {/* 📧 Email */}
+                    <form onSubmit={handleLoginSubmit}>
+                        {/* Email */}
                         <div className="input-group">
                             <div className="input-icon">
                                 <FaEnvelope />
@@ -181,10 +95,11 @@ const Login = () => {
                                 value={formData.email}
                                 onChange={handleInputChange}
                                 required
+                                autoComplete="email"
                             />
                         </div>
 
-                        {/* 🔒 Contraseña */}
+                        {/* Contraseña */}
                         <div className="input-group">
                             <div className="input-icon">
                                 <FaLock />
@@ -196,6 +111,7 @@ const Login = () => {
                                 value={formData.password}
                                 onChange={handleInputChange}
                                 required
+                                autoComplete="current-password"
                             />
                             <button
                                 type="button"
@@ -206,24 +122,7 @@ const Login = () => {
                             </button>
                         </div>
 
-                        {/* 🔒 Confirmar contraseña (solo en registro) */}
-                        {!isLogin && (
-                            <div className="input-group">
-                                <div className="input-icon">
-                                    <FaLock />
-                                </div>
-                                <input
-                                    type={showPassword ? 'text' : 'password'}
-                                    name="confirmPassword"
-                                    placeholder="Confirmar contraseña"
-                                    value={formData.confirmPassword}
-                                    onChange={handleInputChange}
-                                    required={!isLogin}
-                                />
-                            </div>
-                        )}
-
-                        {/* 🔄 Botón de envío */}
+                        {/* Botón de envío */}
                         <button
                             type="submit"
                             className={`submit-btn ${loading ? 'loading' : ''}`}
@@ -232,25 +131,25 @@ const Login = () => {
                             {loading ? (
                                 <div className="spinner"></div>
                             ) : (
-                                <>
-                                    {isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'}
-                                </>
+                                'Iniciar Sesión'
                             )}
                         </button>
                     </form>
 
-                    {/* 🔗 Enlaces adicionales */}
+                    {/* Enlaces adicionales */}
                     <div className="form-links">
                         <button
                             type="button"
                             className="link-button"
-                            onClick={() => setIsLogin(!isLogin)}
+                            onClick={handleForgotPassword}
                         >
-                            {isLogin
-                                ? '¿No tienes cuenta? Regístrate'
-                                : '¿Ya tienes cuenta? Inicia sesión'
-                            }
+                            ¿Olvidaste tu contraseña?
                         </button>
+                    </div>
+
+                    {/* Información adicional */}
+                    <div className="login-info">
+                        <p>Para crear una cuenta nueva, contacta al administrador del sistema.</p>
                     </div>
                 </div>
             </div>

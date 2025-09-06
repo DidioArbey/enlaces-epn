@@ -31,7 +31,10 @@ import {
     Logout,
     Settings,
     Notifications,
-    Business
+    Business,
+    Group,
+    AdminPanelSettings,
+    Security
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -45,40 +48,76 @@ const Layout = ({ children }) => {
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
     const navigate = useNavigate();
     const location = useLocation();
-    const { user, logout } = useAuth();
+    const { user, logout, hasPermission, getUserPermissions, isRole, ROLES } = useAuth();
 
-    const menuItems = [
-        {
-            text: 'Dashboard',
-            icon: <Dashboard />,
-            path: '/dashboard',
-            description: 'Panel principal con métricas'
-        },
-        {
-            text: 'Nueva Llamada',
-            icon: <Add />,
-            path: '/new-call',
-            description: 'Registrar nueva llamada'
-        },
-        {
-            text: 'Ver Llamadas',
-            icon: <TableView />,
-            path: '/calls',
-            description: 'Lista de todas las llamadas'
-        },
-        {
-            text: 'Reportes',
-            icon: <Assessment />,
-            path: '/reports',
-            description: 'Generar y descargar reportes'
-        },
-        {
-            text: 'Configuración',
-            icon: <Settings />,
-            path: '/settings',
-            description: 'Configuración del sistema'
+    // Configurar elementos del menú según permisos
+    const getMenuItems = () => {
+        const items = [];
+
+        // Dashboard - Solo admin y coordinador
+        if (hasPermission('canViewDashboard')) {
+            items.push({
+                text: 'Dashboard',
+                icon: <Dashboard />,
+                path: '/dashboard',
+                description: 'Panel principal con métricas'
+            });
         }
-    ];
+
+        // Nueva Llamada - Todos pueden llenar formularios
+        if (hasPermission('canFillForms')) {
+            items.push({
+                text: 'Nueva Llamada',
+                icon: <Add />,
+                path: '/new-call',
+                description: 'Registrar nueva llamada'
+            });
+        }
+
+        // Ver Llamadas - Todos pueden ver llamadas
+        if (hasPermission('canViewCalls')) {
+            items.push({
+                text: 'Ver Llamadas',
+                icon: <TableView />,
+                path: '/calls',
+                description: 'Lista de todas las llamadas'
+            });
+        }
+
+        // Reportes - Solo admin y coordinador
+        if (hasPermission('canViewReports')) {
+            items.push({
+                text: 'Reportes',
+                icon: <Assessment />,
+                path: '/reports',
+                description: 'Generar y descargar reportes'
+            });
+        }
+
+        // Gestión de Usuarios - Solo admin
+        if (hasPermission('canCreateUsers')) {
+            items.push({
+                text: 'Usuarios',
+                icon: <Group />,
+                path: '/user-management',
+                description: 'Gestionar usuarios del sistema'
+            });
+        }
+
+        // Configuración - Solo admin
+        if (hasPermission('canManageSettings')) {
+            items.push({
+                text: 'Configuración',
+                icon: <Settings />,
+                path: '/settings',
+                description: 'Configuración del sistema'
+            });
+        }
+
+        return items;
+    };
+
+    const menuItems = getMenuItems();
 
     const handleDrawerToggle = () => {
         setMobileOpen(!mobileOpen);
@@ -106,13 +145,20 @@ const Layout = ({ children }) => {
     };
 
     const getUserRole = () => {
-        const role = user?.profile?.role || 'operator';
-        const roles = {
-            admin: 'Administrador',
-            supervisor: 'Supervisor',
-            operator: 'Operador'
-        };
-        return roles[role] || 'Usuario';
+        const permissions = getUserPermissions();
+        return permissions?.label || 'Usuario';
+    };
+
+    const getRoleIcon = () => {
+        if (isRole(ROLES.ADMIN)) return <AdminPanelSettings sx={{ fontSize: 20 }} />;
+        if (isRole(ROLES.COORDINADOR)) return <Security sx={{ fontSize: 20 }} />;
+        return <AccountCircle sx={{ fontSize: 20 }} />;
+    };
+
+    const getRoleColor = () => {
+        if (isRole(ROLES.ADMIN)) return 'error.main';
+        if (isRole(ROLES.COORDINADOR)) return 'warning.main';
+        return 'info.main';
     };
 
     const drawer = (
@@ -132,7 +178,7 @@ const Layout = ({ children }) => {
 
             <Divider />
 
-            {/* Menu Items */}
+            {/* Menu Items - Solo mostrar los permitidos */}
             <List sx={{ flex: 1, px: 1, py: 2 }}>
                 {menuItems.map((item) => (
                     <Tooltip key={item.text} title={item.description} placement="right">
@@ -174,17 +220,28 @@ const Layout = ({ children }) => {
                 ))}
             </List>
 
-            {/* User Info */}
+            {/* User Info con rol */}
             <Box sx={{ p: 2, bgcolor: 'grey.50', borderTop: 1, borderColor: 'divider' }}>
-                <Typography variant="caption" color="text.secondary">
-                    Conectado como:
-                </Typography>
-                <Typography variant="body2" fontWeight="medium" noWrap>
-                    {user?.displayName || user?.email}
-                </Typography>
-                <Typography variant="caption" color="primary">
-                    {getUserRole()}
-                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    {getRoleIcon()}
+                    <Box sx={{ ml: 1, flex: 1 }}>
+                        <Typography variant="caption" color="text.secondary">
+                            Conectado como:
+                        </Typography>
+                        <Typography variant="body2" fontWeight="medium" noWrap>
+                            {user?.displayName || user?.email}
+                        </Typography>
+                        <Typography
+                            variant="caption"
+                            sx={{
+                                color: getRoleColor(),
+                                fontWeight: 'bold'
+                            }}
+                        >
+                            {getUserRole()}
+                        </Typography>
+                    </Box>
+                </Box>
             </Box>
         </Box>
     );
@@ -219,12 +276,14 @@ const Layout = ({ children }) => {
                         Sistema de Gestión de Llamadas
                     </Typography>
 
-                    {/* Notificaciones */}
-                    <IconButton color="inherit" sx={{ mr: 1 }}>
-                        <Badge badgeContent={3} color="error">
-                            <Notifications />
-                        </Badge>
-                    </IconButton>
+                    {/* Notificaciones - Solo para admin y coordinador */}
+                    {(isRole(ROLES.ADMIN) || isRole(ROLES.COORDINADOR)) && (
+                        <IconButton color="inherit" sx={{ mr: 1 }}>
+                            <Badge badgeContent={3} color="error">
+                                <Notifications />
+                            </Badge>
+                        </IconButton>
+                    )}
 
                     {/* Profile Menu */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -232,7 +291,10 @@ const Layout = ({ children }) => {
                             <Typography variant="body2" color="text.primary" fontWeight="medium">
                                 {user?.displayName || 'Usuario'}
                             </Typography>
-                            <Typography variant="caption" color="text.secondary">
+                            <Typography
+                                variant="caption"
+                                sx={{ color: getRoleColor(), fontWeight: 'bold' }}
+                            >
                                 {getUserRole()}
                             </Typography>
                         </Box>
@@ -248,7 +310,7 @@ const Layout = ({ children }) => {
                                 sx={{
                                     width: 36,
                                     height: 36,
-                                    bgcolor: 'primary.main',
+                                    bgcolor: getRoleColor(),
                                     fontSize: '1rem'
                                 }}
                             >
@@ -282,6 +344,16 @@ const Layout = ({ children }) => {
                     <Typography variant="caption" color="text.secondary">
                         {user?.email}
                     </Typography>
+                    <Typography
+                        variant="caption"
+                        sx={{
+                            display: 'block',
+                            color: getRoleColor(),
+                            fontWeight: 'bold'
+                        }}
+                    >
+                        {getUserRole()}
+                    </Typography>
                 </Box>
 
                 <MenuItem onClick={handleProfileMenuClose}>
@@ -291,12 +363,14 @@ const Layout = ({ children }) => {
                     Mi Perfil
                 </MenuItem>
 
-                <MenuItem onClick={handleProfileMenuClose}>
-                    <ListItemIcon>
-                        <Settings fontSize="small" />
-                    </ListItemIcon>
-                    Configuración
-                </MenuItem>
+                {hasPermission('canManageSettings') && (
+                    <MenuItem onClick={() => { handleProfileMenuClose(); navigate('/settings'); }}>
+                        <ListItemIcon>
+                            <Settings fontSize="small" />
+                        </ListItemIcon>
+                        Configuración
+                    </MenuItem>
+                )}
 
                 <Divider />
 

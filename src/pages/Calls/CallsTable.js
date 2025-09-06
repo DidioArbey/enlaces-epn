@@ -302,28 +302,34 @@ const CallsTable = () => {
             headerName: 'Acciones',
             width: 140,
             sortable: false,
-            renderCell: (params) => (
-                <Box>
-                    <Tooltip title="Ver detalles">
-                        <IconButton
-                            size="small"
-                            onClick={() => handleViewCall(params.row)}
-                            color="primary"
-                        >
-                            <Visibility fontSize="small" />
-                        </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Eliminar">
-                        <IconButton
-                            size="small"
-                            onClick={() => handleDeleteCall(params.row.id)}
-                            color="error"
-                        >
-                            <Delete fontSize="small" />
-                        </IconButton>
-                    </Tooltip>
-                </Box>
-            )
+            renderCell: (params) => {
+                const { hasPermission } = useAuth(); // Agregar esto al inicio del componente
+
+                return (
+                    <Box>
+                        <Tooltip title="Ver detalles">
+                            <IconButton
+                                size="small"
+                                onClick={() => handleViewCall(params.row)}
+                                color="primary"
+                            >
+                                <Visibility fontSize="small" />
+                            </IconButton>
+                        </Tooltip>
+                        {hasPermission('canDeleteCalls') && (
+                            <Tooltip title="Eliminar">
+                                <IconButton
+                                    size="small"
+                                    onClick={() => handleDeleteCall(params.row.id)}
+                                    color="error"
+                                >
+                                    <Delete fontSize="small" />
+                                </IconButton>
+                            </Tooltip>
+                        )}
+                    </Box>
+                );
+            }
         }
     ];
 
