@@ -10,6 +10,7 @@ import Login from './pages/Login/Login';
 import Dashboard from './pages/Dashboard/Dashboard';
 import NewCallForm from './pages/NewCall/NewCallForm';
 import CallsTable from './pages/Calls/CallsTable';
+import Reports from './pages/Reports/Reports';
 
 // Importar estilos
 import './styles/App.scss';
@@ -61,7 +62,7 @@ const theme = createTheme({
 // 🛡️ Componente para rutas protegidas
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
-
+  
   if (loading) {
     return (
       <div className="loading-container">
@@ -70,21 +71,14 @@ const ProtectedRoute = ({ children }) => {
       </div>
     );
   }
-
+  
   return isAuthenticated ? <Layout>{children}</Layout> : <Navigate to="/login" replace />;
 };
 
-// 📄 Páginas temporales
+// 📄 Páginas 
 const NewCallPage = () => <NewCallForm />;
-
 const CallsPage = () => <CallsTable />;
-
-const ReportsPage = () => (
-  <div>
-    <h1>📊 Reportes</h1>
-    <p>Generación de reportes (próximamente)</p>
-  </div>
-);
+const ReportsPage = () => <Reports />;
 
 const SettingsPage = () => (
   <div>
@@ -103,49 +97,49 @@ function App() {
             <Routes>
               {/* 🔐 Ruta de login */}
               <Route path="/login" element={<Login />} />
-
+              
               {/* 🛡️ Rutas protegidas */}
-              <Route
-                path="/dashboard"
+              <Route 
+                path="/dashboard" 
                 element={
                   <ProtectedRoute>
                     <Dashboard />
                   </ProtectedRoute>
-                }
+                } 
               />
-              <Route
-                path="/new-call"
+              <Route 
+                path="/new-call" 
                 element={
                   <ProtectedRoute>
                     <NewCallPage />
                   </ProtectedRoute>
-                }
+                } 
               />
-              <Route
-                path="/calls"
+              <Route 
+                path="/calls" 
                 element={
                   <ProtectedRoute>
                     <CallsPage />
                   </ProtectedRoute>
-                }
+                } 
               />
-              <Route
-                path="/reports"
+              <Route 
+                path="/reports" 
                 element={
                   <ProtectedRoute>
                     <ReportsPage />
                   </ProtectedRoute>
-                }
+                } 
               />
-              <Route
-                path="/settings"
+              <Route 
+                path="/settings" 
                 element={
                   <ProtectedRoute>
                     <SettingsPage />
                   </ProtectedRoute>
-                }
+                } 
               />
-
+              
               {/* 🏠 Redirección por defecto */}
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
