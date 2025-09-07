@@ -1,4 +1,4 @@
-// src/pages/UserManagement/UserManagement.js
+// src/pages/UserManagement/UserManagement.js - Versión unificada
 import React, { useState, useEffect } from 'react';
 import {
     Box,
@@ -26,7 +26,13 @@ import {
     DialogActions,
     Alert,
     Switch,
-    FormControlLabel
+    FormControlLabel,
+    InputAdornment,
+    Tooltip,
+    Paper,
+    TablePagination,
+    FormHelperText,
+    CircularProgress
 } from '@mui/material';
 import {
     PersonAdd,
@@ -35,7 +41,14 @@ import {
     Delete,
     Security,
     Group,
-    AdminPanelSettings
+    AdminPanelSettings,
+    Email,
+    Lock,
+    Person,
+    Search,
+    FilterList,
+    Clear,
+    Refresh
 } from '@mui/icons-material';
 import { ref, onValue, remove, update } from 'firebase/database';
 import { database, dbRefs } from '../../services/firebase';
@@ -45,24 +58,90 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 const UserManagement = () => {
+    // Todos los hooks al inicio
     const { createUser, hasPermission, user: currentUser } = useAuth();
     const [users, setUsers] = useState([]);
+    const [filteredUsers, setFilteredUsers] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [submitLoading, setSubmitLoading] = useState(false);
     const [openDialog, setOpenDialog] = useState(false);
     const [selectedUser, setSelectedUser] = useState(null);
-    const [formMode, setFormMode] = useState('create'); // 'create' | 'view' | 'edit'
+    const [formMode, setFormMode] = useState('create');
+    const [page, setPage] = useState(0);
+    const [rowsPerPage, setRowsPerPage] = useState(10);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [roleFilter, setRoleFilter] = useState('');
+    const [formErrors, setFormErrors] = useState({});
 
-    // Estados del formulario
     const [formData, setFormData] = useState({
         email: '',
         password: '',
+        confirmPassword: '',
         displayName: '',
         role: ROLES.AGENTE,
         department: '',
         isActive: true
     });
 
-    // Verificar permisos
+    // Cargar usuarios
+    useEffect(() => {
+        if (!hasPermission('canCreateUsers')) {
+            setLoading(false);
+            return;
+        }
+
+        const usersRef = ref(database, dbRefs.users);
+        setLoading(true);
+
+        const unsubscribe = onValue(usersRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                const usersArray = Object.keys(data).map(key => ({
+                    id: key,
+                    ...data[key]
+                }));
+                usersArray.sort((a, b) => {
+                    const dateA = a.createdAt ? new Date(a.createdAt) : new Date(0);
+                    const dateB = b.createdAt ? new Date(b.createdAt) : new Date(0);
+                    return dateB - dateA;
+                });
+                setUsers(usersArray);
+                setFilteredUsers(usersArray);
+            } else {
+                setUsers([]);
+                setFilteredUsers([]);
+            }
+            setLoading(false);
+        }, (error) => {
+            console.error('Error al cargar usuarios:', error);
+            toast.error('Error al cargar usuarios: ' + error.message);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [hasPermission]);
+
+    // Filtrar usuarios
+    useEffect(() => {
+        let filtered = [...users];
+
+        if (searchTerm) {
+            filtered = filtered.filter(user =>
+                user.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                user.department?.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+        }
+
+        if (roleFilter) {
+            filtered = filtered.filter(user => user.role === roleFilter);
+        }
+
+        setFilteredUsers(filtered);
+        setPage(0);
+    }, [users, searchTerm, roleFilter]);
+
+    // Verificar permisos después de hooks
     if (!hasPermission('canCreateUsers')) {
         return (
             <Box sx={{ p: 3 }}>
@@ -73,91 +152,131 @@ const UserManagement = () => {
         );
     }
 
-    // Cargar usuarios
-    useEffect(() => {
-        const usersRef = ref(database, dbRefs.users);
-
-        const unsubscribe = onValue(usersRef, (snapshot) => {
-            const data = snapshot.val();
-            if (data) {
-                const usersArray = Object.keys(data).map(key => ({
-                    id: key,
-                    ...data[key]
-                }));
-                setUsers(usersArray);
-            } else {
-                setUsers([]);
-            }
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
-    }, []);
-
-    // Manejar cambios en el formulario
-    const handleInputChange = (e) => {
-        const { name, value, type, checked } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: type === 'checkbox' ? checked : value
-        }));
+    // Funciones auxiliares
+    const getPermissionLabel = (permission) => {
+        const labels = {
+            canCreateUsers: 'Crear Usuarios',
+            canViewDashboard: 'Ver Dashboard',
+            canViewReports: 'Ver Reportes',
+            canFillForms: 'Llenar Formularios',
+            canViewCalls: 'Ver Llamadas',
+            canManageSettings: 'Gestionar Configuración',
+            canDeleteCalls: 'Eliminar Llamadas'
+        };
+        return labels[permission] || permission;
     };
 
-    // Crear nuevo usuario
+    const getRoleColor = (role) => {
+        switch (role) {
+            case ROLES.ADMIN: return 'error';
+            case ROLES.COORDINADOR: return 'warning';
+            case ROLES.AGENTE: return 'info';
+            default: return 'default';
+        }
+    };
+
+    const getRoleIcon = (role) => {
+        switch (role) {
+            case ROLES.ADMIN: return <AdminPanelSettings fontSize="small" />;
+            case ROLES.COORDINADOR: return <Security fontSize="small" />;
+            case ROLES.AGENTE: return <Group fontSize="small" />;
+            default: return <Group fontSize="small" />;
+        }
+    };
+
+    // Validación
+    const validateForm = () => {
+        const errors = {};
+
+        if (!formData.displayName.trim()) {
+            errors.displayName = 'El nombre es requerido';
+        } else if (formData.displayName.trim().length < 2) {
+            errors.displayName = 'El nombre debe tener al menos 2 caracteres';
+        }
+
+        if (!formData.email.trim()) {
+            errors.email = 'El email es requerido';
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+            errors.email = 'Email inválido';
+        }
+
+        if (formMode === 'create') {
+            if (!formData.password) {
+                errors.password = 'La contraseña es requerida';
+            } else if (formData.password.length < 6) {
+                errors.password = 'La contraseña debe tener al menos 6 caracteres';
+            }
+
+            if (!formData.confirmPassword) {
+                errors.confirmPassword = 'Confirma la contraseña';
+            } else if (formData.password !== formData.confirmPassword) {
+                errors.confirmPassword = 'Las contraseñas no coinciden';
+            }
+        }
+
+        const emailExists = users.some(user =>
+            user.email === formData.email &&
+            (formMode === 'create' || user.id !== selectedUser?.id)
+        );
+
+        if (emailExists) {
+            errors.email = 'Este email ya está registrado';
+        }
+
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
+
+    // Manejadores
+    const handleInputChange = (e) => {
+        const { name, value, type, checked } = e.target;
+        const newValue = type === 'checkbox' ? checked : value;
+
+        setFormData(prev => ({
+            ...prev,
+            [name]: newValue
+        }));
+
+        if (formErrors[name]) {
+            setFormErrors(prev => ({
+                ...prev,
+                [name]: ''
+            }));
+        }
+    };
+
     const handleCreateUser = async () => {
-        if (!formData.email || !formData.password || !formData.displayName) {
-            toast.error('Por favor completa todos los campos obligatorios');
+        if (!validateForm()) {
+            toast.error('Por favor corrige los errores en el formulario');
             return;
         }
 
         try {
+            setSubmitLoading(true);
             await createUser(formData);
             setOpenDialog(false);
             resetForm();
             toast.success('Usuario creado exitosamente');
         } catch (error) {
-            // El error ya se maneja en el hook
+            console.error('Error al crear usuario:', error);
+        } finally {
+            setSubmitLoading(false);
         }
     };
 
-    // Ver detalles del usuario
-    const handleViewUser = (user) => {
-        setSelectedUser(user);
-        setFormData({
-            email: user.email,
-            password: '',
-            displayName: user.displayName,
-            role: user.role,
-            department: user.department || '',
-            isActive: user.isActive !== false
-        });
-        setFormMode('view');
-        setOpenDialog(true);
-    };
-
-    // Editar usuario
-    const handleEditUser = (user) => {
-        setSelectedUser(user);
-        setFormData({
-            email: user.email,
-            password: '',
-            displayName: user.displayName,
-            role: user.role,
-            department: user.department || '',
-            isActive: user.isActive !== false
-        });
-        setFormMode('edit');
-        setOpenDialog(true);
-    };
-
-    // Actualizar usuario
     const handleUpdateUser = async () => {
+        if (!validateForm()) {
+            toast.error('Por favor corrige los errores en el formulario');
+            return;
+        }
+
         if (!selectedUser) return;
 
         try {
+            setSubmitLoading(true);
             const userRef = ref(database, `${dbRefs.users}/${selectedUser.id}`);
             const updateData = {
-                displayName: formData.displayName,
+                displayName: formData.displayName.trim(),
                 role: formData.role,
                 department: formData.department,
                 isActive: formData.isActive,
@@ -172,17 +291,22 @@ const UserManagement = () => {
         } catch (error) {
             console.error('Error al actualizar usuario:', error);
             toast.error('Error al actualizar usuario');
+        } finally {
+            setSubmitLoading(false);
         }
     };
 
-    // Eliminar usuario
-    const handleDeleteUser = async (userId) => {
+    const handleDeleteUser = async (userId, userName) => {
         if (userId === currentUser?.uid) {
             toast.error('No puedes eliminar tu propia cuenta');
             return;
         }
 
-        if (window.confirm('¿Estás seguro de que deseas eliminar este usuario?')) {
+        const confirmed = window.confirm(
+            `¿Estás seguro de que deseas eliminar al usuario "${userName}"?\n\nEsta acción no se puede deshacer.`
+        );
+
+        if (confirmed) {
             try {
                 const userRef = ref(database, `${dbRefs.users}/${userId}`);
                 await remove(userRef);
@@ -194,11 +318,27 @@ const UserManagement = () => {
         }
     };
 
-    // Resetear formulario
+    const openUserDialog = (user, mode) => {
+        setSelectedUser(user);
+        setFormData({
+            email: user?.email || '',
+            password: '',
+            confirmPassword: '',
+            displayName: user?.displayName || '',
+            role: user?.role || ROLES.AGENTE,
+            department: user?.department || '',
+            isActive: user?.isActive !== false
+        });
+        setFormMode(mode);
+        setFormErrors({});
+        setOpenDialog(true);
+    };
+
     const resetForm = () => {
         setFormData({
             email: '',
             password: '',
+            confirmPassword: '',
             displayName: '',
             role: ROLES.AGENTE,
             department: '',
@@ -206,35 +346,27 @@ const UserManagement = () => {
         });
         setSelectedUser(null);
         setFormMode('create');
+        setFormErrors({});
     };
 
-    // Obtener color del chip por rol
-    const getRoleColor = (role) => {
-        switch (role) {
-            case ROLES.ADMIN:
-                return 'error';
-            case ROLES.COORDINADOR:
-                return 'warning';
-            case ROLES.AGENTE:
-                return 'info';
-            default:
-                return 'default';
-        }
+    const clearFilters = () => {
+        setSearchTerm('');
+        setRoleFilter('');
     };
 
-    // Obtener icono por rol
-    const getRoleIcon = (role) => {
-        switch (role) {
-            case ROLES.ADMIN:
-                return <AdminPanelSettings fontSize="small" />;
-            case ROLES.COORDINADOR:
-                return <Security fontSize="small" />;
-            case ROLES.AGENTE:
-                return <Group fontSize="small" />;
-            default:
-                return <Group fontSize="small" />;
-        }
+    const handleChangePage = (event, newPage) => {
+        setPage(newPage);
     };
+
+    const handleChangeRowsPerPage = (event) => {
+        setRowsPerPage(parseInt(event.target.value, 10));
+        setPage(0);
+    };
+
+    const paginatedUsers = filteredUsers.slice(
+        page * rowsPerPage,
+        page * rowsPerPage + rowsPerPage
+    );
 
     return (
         <Box>
@@ -242,25 +374,46 @@ const UserManagement = () => {
             <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Box>
                     <Typography variant="h4" fontWeight="bold" color="primary" gutterBottom>
-                        👥 Gestión de Usuarios
+                        Gestión de Usuarios
                     </Typography>
                     <Typography variant="body1" color="text.secondary">
                         Administra los usuarios del sistema y sus permisos
                     </Typography>
                 </Box>
-                <Button
-                    variant="contained"
-                    startIcon={<PersonAdd />}
-                    onClick={() => {
-                        resetForm();
-                        setOpenDialog(true);
-                    }}
-                >
-                    Crear Usuario
-                </Button>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                        variant="outlined"
+                        startIcon={<Refresh />}
+                        onClick={() => window.location.reload()}
+                        disabled={loading}
+                    >
+                        Actualizar
+                    </Button>
+                    <Button
+                        variant="contained"
+                        startIcon={<PersonAdd />}
+                        onClick={() => {
+                            resetForm();
+                            setOpenDialog(true);
+                        }}
+                        size="large"
+                        disabled={submitLoading}
+                    >
+                        Crear Usuario
+                    </Button>
+                </Box>
             </Box>
 
-            {/* Estadísticas rápidas */}
+            {/* Loading */}
+            {loading && (
+                <Box sx={{ mb: 3 }}>
+                    <Alert severity="info" icon={<CircularProgress size={20} />}>
+                        Cargando usuarios...
+                    </Alert>
+                </Box>
+            )}
+
+            {/* Estadísticas */}
             <Grid container spacing={3} sx={{ mb: 3 }}>
                 <Grid item xs={12} md={3}>
                     <Card>
@@ -312,99 +465,222 @@ const UserManagement = () => {
                 </Grid>
             </Grid>
 
-            {/* Tabla de usuarios */}
-            <Card>
+            {/* Filtros */}
+            <Card sx={{ mb: 3 }}>
                 <CardContent>
-                    <Typography variant="h6" fontWeight="bold" gutterBottom>
-                        Lista de Usuarios
-                    </Typography>
-                    <TableContainer>
-                        <Table>
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell><strong>Usuario</strong></TableCell>
-                                    <TableCell><strong>Email</strong></TableCell>
-                                    <TableCell><strong>Rol</strong></TableCell>
-                                    <TableCell><strong>Departamento</strong></TableCell>
-                                    <TableCell><strong>Estado</strong></TableCell>
-                                    <TableCell><strong>Creado</strong></TableCell>
-                                    <TableCell><strong>Acciones</strong></TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {users.map((user) => (
-                                    <TableRow key={user.id}>
-                                        <TableCell>
-                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                {getRoleIcon(user.role)}
-                                                <Typography variant="body2" fontWeight="medium">
-                                                    {user.displayName}
-                                                </Typography>
-                                            </Box>
-                                        </TableCell>
-                                        <TableCell>{user.email}</TableCell>
-                                        <TableCell>
-                                            <Chip
-                                                label={PERMISSIONS[user.role]?.label || user.role}
-                                                color={getRoleColor(user.role)}
-                                                size="small"
-                                            />
-                                        </TableCell>
-                                        <TableCell>{user.department || '-'}</TableCell>
-                                        <TableCell>
-                                            <Chip
-                                                label={user.isActive !== false ? 'Activo' : 'Inactivo'}
-                                                color={user.isActive !== false ? 'success' : 'error'}
-                                                size="small"
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            {user.createdAt ?
-                                                format(new Date(user.createdAt), 'dd/MM/yyyy', { locale: es }) :
-                                                '-'
-                                            }
-                                        </TableCell>
-                                        <TableCell>
-                                            <IconButton
-                                                size="small"
-                                                onClick={() => handleViewUser(user)}
-                                                color="primary"
-                                            >
-                                                <Visibility fontSize="small" />
-                                            </IconButton>
-                                            <IconButton
-                                                size="small"
-                                                onClick={() => handleEditUser(user)}
-                                                color="warning"
-                                            >
-                                                <Edit fontSize="small" />
-                                            </IconButton>
-                                            {user.id !== currentUser?.uid && (
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={() => handleDeleteUser(user.id)}
-                                                    color="error"
-                                                >
-                                                    <Delete fontSize="small" />
-                                                </IconButton>
-                                            )}
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </TableContainer>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                        <FilterList color="primary" sx={{ mr: 1 }} />
+                        <Typography variant="h6" fontWeight="bold">
+                            Filtros
+                        </Typography>
+                        <Box sx={{ ml: 'auto' }}>
+                            <Button
+                                variant="outlined"
+                                size="small"
+                                startIcon={<Clear />}
+                                onClick={clearFilters}
+                            >
+                                Limpiar
+                            </Button>
+                        </Box>
+                    </Box>
+
+                    <Grid container spacing={2}>
+                        <Grid item xs={12} md={6}>
+                            <TextField
+                                fullWidth
+                                label="Buscar usuarios"
+                                placeholder="Nombre, email o departamento..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                InputProps={{
+                                    startAdornment: (
+                                        <InputAdornment position="start">
+                                            <Search color="action" />
+                                        </InputAdornment>
+                                    )
+                                }}
+                            />
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                            <FormControl fullWidth>
+                                <InputLabel>Filtrar por rol</InputLabel>
+                                <Select
+                                    value={roleFilter}
+                                    onChange={(e) => setRoleFilter(e.target.value)}
+                                    label="Filtrar por rol"
+                                >
+                                    <MenuItem value="">Todos los roles</MenuItem>
+                                    <MenuItem value={ROLES.ADMIN}>Administrador</MenuItem>
+                                    <MenuItem value={ROLES.COORDINADOR}>Coordinador</MenuItem>
+                                    <MenuItem value={ROLES.AGENTE}>Agente</MenuItem>
+                                </Select>
+                            </FormControl>
+                        </Grid>
+                    </Grid>
                 </CardContent>
             </Card>
 
-            {/* Dialog para crear/editar/ver usuario */}
-            <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="md" fullWidth>
+            {/* Mensaje si no hay usuarios */}
+            {!loading && users.length === 0 && (
+                <Card sx={{ mb: 3 }}>
+                    <CardContent sx={{ textAlign: 'center', py: 4 }}>
+                        <Group sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+                        <Typography variant="h6" color="text.secondary" gutterBottom>
+                            No hay usuarios registrados
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Crea el primer usuario para comenzar
+                        </Typography>
+                        <Button
+                            variant="contained"
+                            startIcon={<PersonAdd />}
+                            onClick={() => {
+                                resetForm();
+                                setOpenDialog(true);
+                            }}
+                        >
+                            Crear Primer Usuario
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Tabla */}
+            {users.length > 0 && (
+                <Card>
+                    <CardContent sx={{ p: 0 }}>
+                        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+                            <Typography variant="h6" fontWeight="bold">
+                                Lista de Usuarios ({filteredUsers.length})
+                            </Typography>
+                        </Box>
+
+                        <TableContainer>
+                            <Table>
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell><strong>Usuario</strong></TableCell>
+                                        <TableCell><strong>Email</strong></TableCell>
+                                        <TableCell><strong>Rol</strong></TableCell>
+                                        <TableCell><strong>Departamento</strong></TableCell>
+                                        <TableCell><strong>Estado</strong></TableCell>
+                                        <TableCell><strong>Creado</strong></TableCell>
+                                        <TableCell><strong>Acciones</strong></TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {paginatedUsers.map((user) => (
+                                        <TableRow key={user.id} hover>
+                                            <TableCell>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    {getRoleIcon(user.role)}
+                                                    <Box>
+                                                        <Typography variant="body2" fontWeight="medium">
+                                                            {user.displayName || 'Sin nombre'}
+                                                        </Typography>
+                                                        {user.id === currentUser?.uid && (
+                                                            <Chip label="Tú" size="small" color="info" variant="outlined" />
+                                                        )}
+                                                    </Box>
+                                                </Box>
+                                            </TableCell>
+                                            <TableCell>{user.email}</TableCell>
+                                            <TableCell>
+                                                <Chip
+                                                    label={PERMISSIONS[user.role]?.label || user.role}
+                                                    color={getRoleColor(user.role)}
+                                                    size="small"
+                                                />
+                                            </TableCell>
+                                            <TableCell>{user.department || '-'}</TableCell>
+                                            <TableCell>
+                                                <Chip
+                                                    label={user.isActive !== false ? 'Activo' : 'Inactivo'}
+                                                    color={user.isActive !== false ? 'success' : 'error'}
+                                                    size="small"
+                                                />
+                                            </TableCell>
+                                            <TableCell>
+                                                {user.createdAt ?
+                                                    format(new Date(user.createdAt), 'dd/MM/yyyy', { locale: es }) :
+                                                    '-'
+                                                }
+                                            </TableCell>
+                                            <TableCell>
+                                                <Tooltip title="Ver detalles">
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => openUserDialog(user, 'view')}
+                                                        color="primary"
+                                                    >
+                                                        <Visibility fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                                <Tooltip title="Editar">
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => openUserDialog(user, 'edit')}
+                                                        color="warning"
+                                                    >
+                                                        <Edit fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                                {user.id !== currentUser?.uid && (
+                                                    <Tooltip title="Eliminar">
+                                                        <IconButton
+                                                            size="small"
+                                                            onClick={() => handleDeleteUser(user.id, user.displayName)}
+                                                            color="error"
+                                                        >
+                                                            <Delete fontSize="small" />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                )}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
+
+                        <TablePagination
+                            rowsPerPageOptions={[5, 10, 25, 50]}
+                            component="div"
+                            count={filteredUsers.length}
+                            rowsPerPage={rowsPerPage}
+                            page={page}
+                            onPageChange={handleChangePage}
+                            onRowsPerPageChange={handleChangeRowsPerPage}
+                            labelRowsPerPage="Filas por página:"
+                            labelDisplayedRows={({ from, to, count }) =>
+                                `${from}-${to} de ${count !== -1 ? count : `más de ${to}`}`
+                            }
+                        />
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Dialog */}
+            <Dialog
+                open={openDialog}
+                onClose={() => !submitLoading && setOpenDialog(false)}
+                maxWidth="md"
+                fullWidth
+            >
                 <DialogTitle>
-                    {formMode === 'create' ? 'Crear Nuevo Usuario' :
-                        formMode === 'edit' ? 'Editar Usuario' : 'Detalles del Usuario'}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {formMode === 'create' ? <PersonAdd color="primary" /> :
+                            formMode === 'edit' ? <Edit color="warning" /> : <Visibility color="info" />}
+                        <Typography variant="h6">
+                            {formMode === 'create' ? 'Crear Nuevo Usuario' :
+                                formMode === 'edit' ? 'Editar Usuario' : 'Detalles del Usuario'}
+                        </Typography>
+                    </Box>
                 </DialogTitle>
+
                 <DialogContent>
-                    <Grid container spacing={2} sx={{ mt: 1 }}>
+                    <Grid container spacing={3} sx={{ mt: 0.5 }}>
                         <Grid item xs={12} md={6}>
                             <TextField
                                 fullWidth
@@ -413,9 +689,19 @@ const UserManagement = () => {
                                 value={formData.displayName}
                                 onChange={handleInputChange}
                                 required
-                                disabled={formMode === 'view'}
+                                disabled={formMode === 'view' || submitLoading}
+                                error={!!formErrors.displayName}
+                                helperText={formErrors.displayName}
+                                InputProps={{
+                                    startAdornment: (
+                                        <InputAdornment position="start">
+                                            <Person color="action" />
+                                        </InputAdornment>
+                                    )
+                                }}
                             />
                         </Grid>
+
                         <Grid item xs={12} md={6}>
                             <TextField
                                 fullWidth
@@ -425,44 +711,99 @@ const UserManagement = () => {
                                 value={formData.email}
                                 onChange={handleInputChange}
                                 required
-                                disabled={formMode !== 'create'}
+                                disabled={formMode !== 'create' || submitLoading}
+                                error={!!formErrors.email}
+                                helperText={formErrors.email}
+                                InputProps={{
+                                    startAdornment: (
+                                        <InputAdornment position="start">
+                                            <Email color="action" />
+                                        </InputAdornment>
+                                    )
+                                }}
                             />
                         </Grid>
+
                         {formMode === 'create' && (
-                            <Grid item xs={12} md={6}>
-                                <TextField
-                                    fullWidth
-                                    label="Contraseña"
-                                    name="password"
-                                    type="password"
-                                    value={formData.password}
-                                    onChange={handleInputChange}
-                                    required
-                                />
-                            </Grid>
+                            <>
+                                <Grid item xs={12} md={6}>
+                                    <TextField
+                                        fullWidth
+                                        label="Contraseña"
+                                        name="password"
+                                        type="password"
+                                        value={formData.password}
+                                        onChange={handleInputChange}
+                                        required
+                                        disabled={submitLoading}
+                                        error={!!formErrors.password}
+                                        helperText={formErrors.password}
+                                        InputProps={{
+                                            startAdornment: (
+                                                <InputAdornment position="start">
+                                                    <Lock color="action" />
+                                                </InputAdornment>
+                                            )
+                                        }}
+                                    />
+                                </Grid>
+                                <Grid item xs={12} md={6}>
+                                    <TextField
+                                        fullWidth
+                                        label="Confirmar Contraseña"
+                                        name="confirmPassword"
+                                        type="password"
+                                        value={formData.confirmPassword}
+                                        onChange={handleInputChange}
+                                        required
+                                        disabled={submitLoading}
+                                        error={!!formErrors.confirmPassword}
+                                        helperText={formErrors.confirmPassword}
+                                        InputProps={{
+                                            startAdornment: (
+                                                <InputAdornment position="start">
+                                                    <Lock color="action" />
+                                                </InputAdornment>
+                                            )
+                                        }}
+                                    />
+                                </Grid>
+                            </>
                         )}
+
                         <Grid item xs={12} md={6}>
-                            <FormControl fullWidth>
-                                <InputLabel>Rol</InputLabel>
+                            <FormControl fullWidth error={!!formErrors.role}>
+                                <InputLabel>Rol del Usuario</InputLabel>
                                 <Select
                                     name="role"
                                     value={formData.role}
                                     onChange={handleInputChange}
-                                    label="Rol"
-                                    disabled={formMode === 'view'}
+                                    label="Rol del Usuario"
+                                    disabled={formMode === 'view' || submitLoading}
                                 >
                                     <MenuItem value={ROLES.AGENTE}>
-                                        {PERMISSIONS[ROLES.AGENTE].label}
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                            <Group fontSize="small" />
+                                            {PERMISSIONS[ROLES.AGENTE].label}
+                                        </Box>
                                     </MenuItem>
                                     <MenuItem value={ROLES.COORDINADOR}>
-                                        {PERMISSIONS[ROLES.COORDINADOR].label}
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                            <Security fontSize="small" />
+                                            {PERMISSIONS[ROLES.COORDINADOR].label}
+                                        </Box>
                                     </MenuItem>
                                     <MenuItem value={ROLES.ADMIN}>
-                                        {PERMISSIONS[ROLES.ADMIN].label}
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                            <AdminPanelSettings fontSize="small" />
+                                            {PERMISSIONS[ROLES.ADMIN].label}
+                                        </Box>
                                     </MenuItem>
                                 </Select>
+                                {formErrors.role && <FormHelperText>{formErrors.role}</FormHelperText>}
                             </FormControl>
                         </Grid>
+
                         <Grid item xs={12} md={6}>
                             <FormControl fullWidth>
                                 <InputLabel>Departamento</InputLabel>
@@ -471,9 +812,9 @@ const UserManagement = () => {
                                     value={formData.department}
                                     onChange={handleInputChange}
                                     label="Departamento"
-                                    disabled={formMode === 'view'}
+                                    disabled={formMode === 'view' || submitLoading}
                                 >
-                                    <MenuItem value="">Sin departamento</MenuItem>
+                                    <MenuItem value=""><em>Sin departamento</em></MenuItem>
                                     <MenuItem value="atencion-cliente">Atención al Cliente</MenuItem>
                                     <MenuItem value="acueducto">Acueducto</MenuItem>
                                     <MenuItem value="energia">Energía</MenuItem>
@@ -482,6 +823,7 @@ const UserManagement = () => {
                                 </Select>
                             </FormControl>
                         </Grid>
+
                         {formMode !== 'create' && (
                             <Grid item xs={12}>
                                 <FormControlLabel
@@ -490,18 +832,25 @@ const UserManagement = () => {
                                             name="isActive"
                                             checked={formData.isActive}
                                             onChange={handleInputChange}
-                                            disabled={formMode === 'view'}
+                                            disabled={formMode === 'view' || submitLoading}
+                                            color="success"
                                         />
                                     }
-                                    label="Usuario Activo"
+                                    label={
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                            {!formData.isActive && (
+                                                <Chip label="Desactivado" color="error" size="small" />
+                                            )}
+                                        </Box>
+                                    }
                                 />
                             </Grid>
                         )}
                     </Grid>
 
-                    {/* Mostrar permisos del rol seleccionado */}
+                    {/* Permisos del rol */}
                     {formData.role && (
-                        <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
+                        <Paper sx={{ mt: 3, p: 2, bgcolor: 'grey.50' }}>
                             <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
                                 Permisos del rol: {PERMISSIONS[formData.role]?.label}
                             </Typography>
@@ -509,52 +858,54 @@ const UserManagement = () => {
                                 {Object.entries(PERMISSIONS[formData.role] || {}).map(([key, value]) => {
                                     if (key === 'label') return null;
                                     return (
-                                        <Grid item xs={6} key={key}>
+                                        <Grid item xs={12} sm={6} key={key}>
                                             <Chip
                                                 label={getPermissionLabel(key)}
                                                 color={value ? 'success' : 'default'}
                                                 variant={value ? 'filled' : 'outlined'}
                                                 size="small"
+                                                sx={{ mb: 0.5 }}
                                             />
                                         </Grid>
                                     );
                                 })}
                             </Grid>
-                        </Box>
+                        </Paper>
                     )}
                 </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setOpenDialog(false)}>
+
+                <DialogActions sx={{ p: 2.5, pt: 1 }}>
+                    <Button 
+                        onClick={() => setOpenDialog(false)} 
+                        color="inherit"
+                        disabled={submitLoading}
+                    >
                         Cancelar
                     </Button>
                     {formMode === 'create' && (
-                        <Button onClick={handleCreateUser} variant="contained">
-                            Crear Usuario
+                        <Button
+                            onClick={handleCreateUser}
+                            variant="contained"
+                            disabled={submitLoading}
+                            startIcon={submitLoading ? <CircularProgress size={20} /> : <PersonAdd />}
+                        >
+                            {submitLoading ? 'Creando...' : 'Crear Usuario'}
                         </Button>
                     )}
                     {formMode === 'edit' && (
-                        <Button onClick={handleUpdateUser} variant="contained">
-                            Actualizar
+                        <Button
+                            onClick={handleUpdateUser}
+                            variant="contained"
+                            disabled={submitLoading}
+                            startIcon={submitLoading ? <CircularProgress size={20} /> : <Edit />}
+                        >
+                            {submitLoading ? 'Actualizando...' : 'Actualizar'}
                         </Button>
                     )}
                 </DialogActions>
             </Dialog>
         </Box>
     );
-
-    // Función auxiliar para etiquetas de permisos
-    function getPermissionLabel(permission) {
-        const labels = {
-            canCreateUsers: 'Crear Usuarios',
-            canViewDashboard: 'Ver Dashboard',
-            canViewReports: 'Ver Reportes',
-            canFillForms: 'Llenar Formularios',
-            canViewCalls: 'Ver Llamadas',
-            canManageSettings: 'Gestionar Configuración',
-            canDeleteCalls: 'Eliminar Llamadas'
-        };
-        return labels[permission] || permission;
-    }
 };
 
 export default UserManagement;

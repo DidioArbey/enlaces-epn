@@ -1,4 +1,4 @@
-// src/hooks/useAuth.js
+// src/hooks/useAuth.js - Versión mejorada
 import { useState, useEffect, createContext, useContext } from 'react';
 import {
   signInWithEmailAndPassword,
@@ -148,49 +148,70 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // 👥 Función para crear usuario (solo administradores)
+  // 👥 Función para crear usuario (solo administradores) - MEJORADA
   const createUser = async (userData) => {
     try {
       if (!hasPermission('canCreateUsers')) {
         throw new Error('Sin permisos para crear usuarios');
       }
 
-      setLoading(true);
+      console.log('Iniciando creación de usuario...', { email: userData.email, role: userData.role });
+
+      // Validaciones adicionales
+      if (!userData.email || !userData.password || !userData.displayName) {
+        throw new Error('Faltan datos obligatorios');
+      }
+
+      if (userData.password.length < 6) {
+        throw new Error('La contraseña debe tener al menos 6 caracteres');
+      }
 
       // Crear usuario en Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(
         auth,
-        userData.email,
+        userData.email.trim(),
         userData.password
       );
 
       const newUser = userCredential.user;
+      console.log('Usuario creado en Firebase Auth:', newUser.uid);
 
       // Actualizar perfil
       if (userData.displayName) {
         await updateProfile(newUser, {
-          displayName: userData.displayName
+          displayName: userData.displayName.trim()
         });
+        console.log('Perfil actualizado en Firebase Auth');
       }
 
       // Guardar en Realtime Database
       const userProfile = {
         email: newUser.email,
-        displayName: userData.displayName || '',
+        displayName: userData.displayName?.trim() || '',
         role: userData.role || ROLES.AGENTE,
         department: userData.department || '',
         createdAt: new Date().toISOString(),
         createdBy: user?.uid || 'system',
-        isActive: true
+        isActive: true,
+        lastLogin: null,
+        updatedAt: new Date().toISOString()
       };
 
       const userRef = ref(database, `${dbRefs.users}/${newUser.uid}`);
       await set(userRef, userProfile);
+      console.log('Perfil guardado en Realtime Database');
 
-      toast.success('Usuario creado exitosamente');
+      toast.success(`Usuario ${userData.displayName} creado exitosamente`);
       return newUser;
+      
     } catch (error) {
-      console.error('Error al crear usuario:', error);
+      console.error('Error detallado al crear usuario:', error);
+
+      // Si el usuario se creó en Auth pero falló la DB, intentar limpieza
+      if (error.code && error.code.startsWith('database/')) {
+        console.error('Error en base de datos, pero usuario ya creado en Auth');
+        toast.error('Usuario creado pero hubo un error al guardar el perfil. Contacta al administrador.');
+      }
 
       let message = 'Error al crear usuario';
       switch (error.code) {
@@ -203,14 +224,21 @@ export const AuthProvider = ({ children }) => {
         case 'auth/invalid-email':
           message = 'Email inválido';
           break;
+        case 'auth/operation-not-allowed':
+          message = 'La creación de usuarios no está habilitada en Firebase';
+          break;
+        case 'database/permission-denied':
+          message = 'Sin permisos para escribir en la base de datos';
+          break;
+        case 'database/network-error':
+          message = 'Error de conexión con la base de datos';
+          break;
         default:
-          message = error.message;
+          message = error.message || 'Error desconocido al crear usuario';
       }
 
       toast.error(message);
       throw error;
-    } finally {
-      setLoading(false);
     }
   };
 

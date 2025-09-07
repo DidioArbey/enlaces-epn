@@ -1,4 +1,4 @@
-// src/pages/Calls/CallsTable.js
+// src/pages/Calls/CallsTable.js - Corregido
 import React, { useState, useEffect } from 'react';
 import {
     Box,
@@ -46,7 +46,8 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 const CallsTable = () => {
-    const { user } = useAuth();
+    // ✅ Mover useAuth al nivel superior del componente
+    const { user, hasPermission } = useAuth();
     const [calls, setCalls] = useState([]);
     const [filteredCalls, setFilteredCalls] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -302,34 +303,30 @@ const CallsTable = () => {
             headerName: 'Acciones',
             width: 140,
             sortable: false,
-            renderCell: (params) => {
-                const { hasPermission } = useAuth(); // Agregar esto al inicio del componente
-
-                return (
-                    <Box>
-                        <Tooltip title="Ver detalles">
+            renderCell: (params) => (
+                <Box>
+                    <Tooltip title="Ver detalles">
+                        <IconButton
+                            size="small"
+                            onClick={() => handleViewCall(params.row)}
+                            color="primary"
+                        >
+                            <Visibility fontSize="small" />
+                        </IconButton>
+                    </Tooltip>
+                    {hasPermission('canDeleteCalls') && (
+                        <Tooltip title="Eliminar">
                             <IconButton
                                 size="small"
-                                onClick={() => handleViewCall(params.row)}
-                                color="primary"
+                                onClick={() => handleDeleteCall(params.row.id)}
+                                color="error"
                             >
-                                <Visibility fontSize="small" />
+                                <Delete fontSize="small" />
                             </IconButton>
                         </Tooltip>
-                        {hasPermission('canDeleteCalls') && (
-                            <Tooltip title="Eliminar">
-                                <IconButton
-                                    size="small"
-                                    onClick={() => handleDeleteCall(params.row.id)}
-                                    color="error"
-                                >
-                                    <Delete fontSize="small" />
-                                </IconButton>
-                            </Tooltip>
-                        )}
-                    </Box>
-                );
-            }
+                    )}
+                </Box>
+            )
         }
     ];
 

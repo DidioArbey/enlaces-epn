@@ -2,7 +2,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
-import { CssBaseline } from '@mui/material';
+import { CssBaseline, Alert, Box } from '@mui/material';
 import { ToastContainer } from 'react-toastify';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import Layout from './components/layout/Layout';
@@ -11,12 +11,13 @@ import Dashboard from './pages/Dashboard/Dashboard';
 import NewCallForm from './pages/NewCall/NewCallForm';
 import CallsTable from './pages/Calls/CallsTable';
 import Reports from './pages/Reports/Reports';
+import UserManagement from './pages/UserManagement/UserManagement'; // ← AGREGAR ESTA LÍNEA
 
 // Importar estilos
 import './styles/App.scss';
 import 'react-toastify/dist/ReactToastify.css';
 
-// 🎨 Tema personalizado de Material-UI
+// Tema personalizado de Material-UI
 const theme = createTheme({
   palette: {
     primary: {
@@ -59,7 +60,7 @@ const theme = createTheme({
   },
 });
 
-// 🛡️ Componente para rutas protegidas
+// Componente para rutas protegidas
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
   
@@ -75,17 +76,96 @@ const ProtectedRoute = ({ children }) => {
   return isAuthenticated ? <Layout>{children}</Layout> : <Navigate to="/login" replace />;
 };
 
-// 📄 Páginas 
-const NewCallPage = () => <NewCallForm />;
-const CallsPage = () => <CallsTable />;
-const ReportsPage = () => <Reports />;
+// Componente para rutas protegidas con permisos específicos
+const PermissionProtectedRoute = ({ children, permission }) => {
+  const { hasPermission, loading } = useAuth();
+  
+  if (loading) {
+    return (
+      <div className="loading-container">
+        <div className="spinner"></div>
+        <p>Cargando...</p>
+      </div>
+    );
+  }
+  
+  if (!hasPermission(permission)) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error">
+          No tienes permisos para acceder a esta sección.
+        </Alert>
+      </Box>
+    );
+  }
+  
+  return children;
+};
+
+// Páginas de la aplicación
+const DashboardPage = () => (
+  <PermissionProtectedRoute permission="canViewDashboard">
+    <Dashboard />
+  </PermissionProtectedRoute>
+);
+
+const NewCallPage = () => (
+  <PermissionProtectedRoute permission="canFillForms">
+    <NewCallForm />
+  </PermissionProtectedRoute>
+);
+
+const CallsPage = () => (
+  <PermissionProtectedRoute permission="canViewCalls">
+    <CallsTable />
+  </PermissionProtectedRoute>
+);
+
+const ReportsPage = () => (
+  <PermissionProtectedRoute permission="canViewReports">
+    <Reports />
+  </PermissionProtectedRoute>
+);
+
+const UserManagementPage = () => (  // ← AGREGAR ESTA FUNCIÓN
+  <PermissionProtectedRoute permission="canCreateUsers">
+    <UserManagement />
+  </PermissionProtectedRoute>
+);
 
 const SettingsPage = () => (
-  <div>
-    <h1>⚙️ Configuración</h1>
-    <p>Configuración del sistema (próximamente)</p>
-  </div>
+  <PermissionProtectedRoute permission="canManageSettings">
+    <div>
+      <h1>⚙️ Configuración</h1>
+      <p>Configuración del sistema (próximamente)</p>
+    </div>
+  </PermissionProtectedRoute>
 );
+
+// Página de redirección inteligente según rol
+const SmartRedirect = () => {
+  const { hasPermission, loading } = useAuth();
+  
+  if (loading) {
+    return (
+      <div className="loading-container">
+        <div className="spinner"></div>
+        <p>Cargando...</p>
+      </div>
+    );
+  }
+  
+  // Redirigir según permisos
+  if (hasPermission('canViewDashboard')) {
+    return <Navigate to="/dashboard" replace />;
+  } else if (hasPermission('canFillForms')) {
+    return <Navigate to="/new-call" replace />;
+  } else if (hasPermission('canViewCalls')) {
+    return <Navigate to="/calls" replace />;
+  }
+  
+  return <Navigate to="/login" replace />;
+};
 
 function App() {
   return (
@@ -95,15 +175,15 @@ function App() {
         <Router>
           <div className="App">
             <Routes>
-              {/* 🔐 Ruta de login */}
+              {/* Ruta de login */}
               <Route path="/login" element={<Login />} />
               
-              {/* 🛡️ Rutas protegidas */}
+              {/* Rutas protegidas */}
               <Route 
                 path="/dashboard" 
                 element={
                   <ProtectedRoute>
-                    <Dashboard />
+                    <DashboardPage />
                   </ProtectedRoute>
                 } 
               />
@@ -132,6 +212,14 @@ function App() {
                 } 
               />
               <Route 
+                path="/user-management" 
+                element={
+                  <ProtectedRoute>
+                    <UserManagementPage />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
                 path="/settings" 
                 element={
                   <ProtectedRoute>
@@ -140,12 +228,19 @@ function App() {
                 } 
               />
               
-              {/* 🏠 Redirección por defecto */}
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              {/* Redirección inteligente por defecto */}
+              <Route 
+                path="/" 
+                element={
+                  <ProtectedRoute>
+                    <SmartRedirect />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
 
-            {/* 🔔 Contenedor de notificaciones */}
+            {/* Contenedor de notificaciones */}
             <ToastContainer
               position="top-right"
               autoClose={4000}
